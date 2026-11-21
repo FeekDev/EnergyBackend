@@ -13,8 +13,8 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-  "casaId": 1,
   "numeroContrato": "CONTRATO-001",
+  "cantidadPersonas": "3",
   "fechaEmision": "2026-11-01T00:00:00Z",
   "fechaPago": null,
   "consumoAcueductoM3": 12.5,

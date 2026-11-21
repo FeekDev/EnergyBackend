@@ -180,3 +180,18 @@ VALUES (N'20261122160000_RegistrarConsumosServicios', N'10.0.11');
 
 COMMIT;
 GO
+
+BEGIN TRANSACTION;
+DROP INDEX [IX_Casas_UsuarioId] ON [Casas];
+
+ALTER TABLE [Casas] ADD [NumeroContrato] nvarchar(100) NULL;
+
+CREATE UNIQUE INDEX [IX_Casas_UsuarioId_NumeroContrato]
+    ON [Casas] ([UsuarioId], [NumeroContrato])
+    WHERE [NumeroContrato] IS NOT NULL;
+
+INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+VALUES (N'20261122170000_IdentificarCasaPorContrato', N'10.0.11');
+
+COMMIT;
+GO

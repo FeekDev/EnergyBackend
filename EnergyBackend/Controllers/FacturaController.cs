@@ -51,12 +51,60 @@ public sealed class FacturaController(AppDbContext context) : ControllerBase
             return Unauthorized();
         }
 
-        if (!await context.Casas.AnyAsync(casa =>
-                casa.Id == request.CasaId && casa.UsuarioId == usuarioId.Value,
-                cancellationToken))
+        var numeroContrato = request.NumeroContrato.Trim();
+        Casa? casa;
+        if (request.CasaId is not null)
         {
-            return BadRequest(new { message = "La casa no existe o no pertenece al usuario autenticado." });
+            casa = await context.Casas.SingleOrDefaultAsync(
+                item => item.Id == request.CasaId && item.UsuarioId == usuarioId.Value,
+                cancellationToken);
+            if (casa is null)
+            {
+                return BadRequest(new { message = "La casa no existe o no pertenece al usuario autenticado." });
+            }
+
+            if (casa.NumeroContrato is not null && casa.NumeroContrato != numeroContrato)
+            {
+                return BadRequest(new { message = "La casa ya está asociada a otro número de contrato." });
+            }
         }
+        else
+        {
+            casa = await context.Casas.SingleOrDefaultAsync(
+                item => item.UsuarioId == usuarioId.Value && item.NumeroContrato == numeroContrato,
+                cancellationToken);
+
+            if (casa is null)
+            {
+                if (string.IsNullOrWhiteSpace(request.CantidadPersonas))
+                {
+                    ModelState.AddModelError(
+                        nameof(request.CantidadPersonas),
+                        "Indica la cantidad de personas para crear la casa asociada al contrato.");
+                    return ValidationProblem(ModelState);
+                }
+
+                casa = new Casa
+                {
+                    NumeroContrato = numeroContrato,
+                    CantidadPersonas = request.CantidadPersonas.Trim(),
+                    UsuarioId = usuarioId.Value
+                };
+                context.Casas.Add(casa);
+            }
+        }
+
+        var contratoEnOtraCasa = await context.Casas.AnyAsync(
+            item => item.UsuarioId == usuarioId.Value
+                && item.NumeroContrato == numeroContrato
+                && item.Id != casa.Id,
+            cancellationToken);
+        if (contratoEnOtraCasa)
+        {
+            return Conflict(new { message = "El número de contrato ya está asociado a otra casa." });
+        }
+
+        casa.NumeroContrato = numeroContrato;
 
         if (request.FechaPago is not null && request.FechaPago.Value < request.FechaEmision)
         {
@@ -68,8 +116,8 @@ public sealed class FacturaController(AppDbContext context) : ControllerBase
         var factura = new Factura
         {
             UsuarioId = usuarioId.Value,
-            CasaId = request.CasaId,
-            NumeroContrato = request.NumeroContrato.Trim(),
+            Casa = casa,
+            NumeroContrato = numeroContrato,
             FechaEmision = request.FechaEmision,
             FechaPago = request.FechaPago,
             ConsumoAcueductoM3 = request.ConsumoAcueductoM3,
@@ -121,7 +169,8 @@ public sealed class FacturaController(AppDbContext context) : ControllerBase
                     grupo.Sum(factura => factura.ConsumoEnergiaKwh),
                     grupo.Sum(factura => factura.ConsumoAcueductoM3),
                     grupo.Sum(factura => factura.ConsumoAlcantarilladoM3),
-                    grupo.Sum(factura => factura.ConsumoGasM3)))
+                    grupo.Sum(factura => factura.ConsumoGasM3),
+                    grupo.Count()))
                 .OrderByDescending(periodo => periodo.Anio)
                 .ThenByDescending(periodo => periodo.Trimestre)
                 .ToList();
@@ -133,22 +182,32 @@ public sealed class FacturaController(AppDbContext context) : ControllerBase
             var anterior = periodos.FirstOrDefault(periodo =>
                 periodo.Anio == trimestreAnterior.Item1 &&
                 periodo.Trimestre == trimestreAnterior.Item2);
+            var hoy = DateTime.UtcNow;
+            var esTrimestreEnCurso = actual.Anio == hoy.Year &&
+                actual.Trimestre == (hoy.Month - 1) / 3 + 1;
+            var periodoParaComparar = esTrimestreEnCurso ? null : anterior;
 
             resultados.Add(new RecomendacionTrimestralResponse(
                 facturasCasa.Key,
                 actual.Anio,
                 actual.Trimestre,
+                actual.CantidadFacturas,
+                esTrimestreEnCurso,
                 CrearConsumoRecomendado(
-                    "Energía", "kWh", actual.ConsumoEnergiaKwh, anterior?.ConsumoEnergiaKwh,
+                    "Energía", "kWh", actual.ConsumoEnergiaKwh, periodoParaComparar?.ConsumoEnergiaKwh,
+                    esTrimestreEnCurso,
                     "Revisa iluminación, equipos en espera y el uso de equipos de alto consumo."),
                 CrearConsumoRecomendado(
-                    "Acueducto", "m³", actual.ConsumoAcueductoM3, anterior?.ConsumoAcueductoM3,
+                    "Acueducto", "m³", actual.ConsumoAcueductoM3, periodoParaComparar?.ConsumoAcueductoM3,
+                    esTrimestreEnCurso,
                     "Revisa posibles fugas y prioriza duchas más cortas y dispositivos ahorradores."),
                 CrearConsumoRecomendado(
-                    "Alcantarillado", "m³", actual.ConsumoAlcantarilladoM3, anterior?.ConsumoAlcantarilladoM3,
+                    "Alcantarillado", "m³", actual.ConsumoAlcantarilladoM3, periodoParaComparar?.ConsumoAlcantarilladoM3,
+                    esTrimestreEnCurso,
                     "Reduce el agua desechada reutilizando agua cuando sea seguro y evita descargas innecesarias."),
                 CrearConsumoRecomendado(
-                    "Gas", "m³", actual.ConsumoGasM3, anterior?.ConsumoGasM3,
+                    "Gas", "m³", actual.ConsumoGasM3, periodoParaComparar?.ConsumoGasM3,
+                    esTrimestreEnCurso,
                     "Revisa la eficiencia de los equipos a gas, la ventilación y su mantenimiento periódico.")));
         }
 
@@ -178,6 +237,7 @@ public sealed class FacturaController(AppDbContext context) : ControllerBase
         string unidad,
         decimal actual,
         decimal? anterior,
+        bool esTrimestreEnCurso,
         string consejoAhorro)
     {
         if (anterior is null)
@@ -188,7 +248,9 @@ public sealed class FacturaController(AppDbContext context) : ControllerBase
                 actual,
                 null,
                 null,
-                $"Este es el primer trimestre disponible. Registra cada factura para establecer una referencia. {consejoAhorro}");
+                esTrimestreEnCurso
+                    ? $"Recomendación preliminar basada en las facturas registradas hasta ahora. Se actualizará al registrar las siguientes facturas del trimestre. {consejoAhorro}"
+                    : $"No hay datos del trimestre anterior para comparar. Registra las facturas para establecer una referencia. {consejoAhorro}");
         }
 
         decimal? variacion = anterior.Value == 0
@@ -218,16 +280,20 @@ public sealed class FacturaController(AppDbContext context) : ControllerBase
         decimal ConsumoEnergiaKwh,
         decimal ConsumoAcueductoM3,
         decimal ConsumoAlcantarilladoM3,
-        decimal ConsumoGasM3);
+        decimal ConsumoGasM3,
+        int CantidadFacturas);
 }
 
 public sealed class RegistrarFacturaRequest
 {
     [Range(1, int.MaxValue)]
-    public int CasaId { get; init; }
+    public int? CasaId { get; init; }
 
     [Required, StringLength(100)]
     public string NumeroContrato { get; init; } = string.Empty;
+
+    [StringLength(100)]
+    public string? CantidadPersonas { get; init; }
 
     public DateTime FechaEmision { get; init; }
     public DateTime? FechaPago { get; init; }
@@ -270,6 +336,8 @@ public sealed record RecomendacionTrimestralResponse(
     int CasaId,
     int Anio,
     int Trimestre,
+    int CantidadFacturas,
+    bool EsPreliminar,
     ConsumoRecomendacionResponse Energia,
     ConsumoRecomendacionResponse Acueducto,
     ConsumoRecomendacionResponse Alcantarillado,

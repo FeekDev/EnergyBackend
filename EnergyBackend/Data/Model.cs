@@ -7,6 +7,8 @@ public class Casa
     public int Id { get; set; }
     public required string CantidadPersonas { get; set; }
     public bool IsComplete { get; set; }
+    [StringLength(100)]
+    public string? NumeroContrato { get; set; }
 
     public int? UsuarioId { get; set; }
     public Usuario? Usuario { get; set; }
