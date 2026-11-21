@@ -1,0 +1,31 @@
+@EnergyBackend_HostAddress = http://localhost:5200
+
+GET {{EnergyBackend_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
+
+@token = replace-with-a-valid-jwt
+
+### Registrar factura con consumo en kWh y m³
+POST {{EnergyBackend_HostAddress}}/api/Factura
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "casaId": 1,
+  "numeroContrato": "CONTRATO-001",
+  "fechaEmision": "2026-11-01T00:00:00Z",
+  "fechaPago": null,
+  "consumoAcueductoM3": 12.5,
+  "consumoAlcantarilladoM3": 12.5,
+  "consumoEnergiaKwh": 185.75,
+  "consumoGasM3": 8.25
+}
+
+### Consultar recomendaciones del trimestre más reciente por casa
+GET {{EnergyBackend_HostAddress}}/api/Factura/recomendaciones-trimestrales
+Authorization: Bearer {{token}}
+Accept: application/json
+
+###

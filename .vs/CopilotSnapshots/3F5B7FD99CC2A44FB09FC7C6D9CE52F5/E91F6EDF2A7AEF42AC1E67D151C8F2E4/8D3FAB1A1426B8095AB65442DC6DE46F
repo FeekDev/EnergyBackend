@@ -1,0 +1,30 @@
+﻿using EnergyBackend.Data;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+
+namespace EnergyBackend.Controllers;
+
+[Route("api/[controller]")]
+[ApiController]
+public class CasaController : ControllerBase
+{
+    private readonly AppDbContext _context;
+    public CasaController(AppDbContext context)
+    {
+        _context = context;
+    }
+    [HttpGet(Name = "GetCasa")]
+    public async Task<ActionResult<IEnumerable<Casa>>> GetCasas()
+    {
+       return await _context.Casas.AsNoTracking().ToListAsync();
+    }
+
+    [HttpPost(Name = "PostCasa")]
+    public async Task<ActionResult<Casa>> PostCasa(Casa casa)
+    {
+        _context.Casas.Add(casa);
+        await _context.SaveChangesAsync();
+        return CreatedAtAction(nameof(GetCasas), new { id = casa.Id }, casa);
+    }
+}
+

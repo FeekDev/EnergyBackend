@@ -1,0 +1,17 @@
+﻿using Microsoft.EntityFrameworkCore;
+using EnergyBackend.Data;
+
+
+var builder = WebApplication.CreateBuilder(args);
+// Configurar SqlServer como proveedor de base de datos
+builder.Services.AddDbContext<AppDbContext>(options =>
+
+options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")
+));
+// Agregar soporte para Controladores
+builder.Services.AddControllers();
+var app = builder.Build();
+app.UseAuthorization();
+app.MapControllers(); // Mapea las rutas basadas en los controladores
+app.Run();
+

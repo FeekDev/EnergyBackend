@@ -1,0 +1,64 @@
+﻿using Microsoft.EntityFrameworkCore.Migrations;
+
+#nullable disable
+
+namespace EnergyBackend.Migrations
+{
+    /// <inheritdoc />
+    public partial class SincronizarModeloRelaciones : Migration
+    {
+        /// <inheritdoc />
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.Sql("""
+                IF EXISTS (
+                    SELECT 1
+                    FROM sys.columns c
+                    INNER JOIN sys.types t ON c.user_type_id = t.user_type_id
+                    WHERE c.object_id = OBJECT_ID('dbo.Direcciones')
+                      AND c.name = 'idCasa'
+                      AND t.name IN ('nvarchar', 'varchar', 'nchar', 'char')
+                )
+                BEGIN
+                    UPDATE dbo.Direcciones
+                    SET idCasa = NULL
+                    WHERE idCasa IS NOT NULL
+                      AND TRY_CONVERT(int, idCasa) IS NULL;
+
+                    ALTER TABLE dbo.Direcciones
+                    ALTER COLUMN idCasa int NULL;
+                END
+                """);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Direcciones_idCasa",
+                table: "Direcciones",
+                column: "idCasa",
+                unique: true,
+                filter: "[idCasa] IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Casas_UsuarioId",
+                table: "Casas",
+                column: "UsuarioId");
+        }
+
+        /// <inheritdoc />
+        protected override void Down(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.DropIndex(
+                name: "IX_Direcciones_idCasa",
+                table: "Direcciones");
+
+            migrationBuilder.DropIndex(
+                name: "IX_Casas_UsuarioId",
+                table: "Casas");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Direcciones_CasaId",
+                table: "Direcciones",
+                column: "idCasa",
+                unique: true);
+        }
+    }
+}

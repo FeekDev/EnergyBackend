@@ -1,0 +1,65 @@
+﻿using System.ComponentModel.DataAnnotations;
+using EnergyBackend.Data;
+using EnergyBackend.Services;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+
+namespace EnergyBackend.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public sealed class AuthController(
+    AppDbContext context,
+    IPasswordService passwordService,
+    ITokenService tokenService) : ControllerBase
+{
+    [HttpPost("register")]
+    public async Task<ActionResult<AuthResponse>> Register(RegisterRequest request)
+    {
+        var email = request.CorreoElectronico.Trim().ToLowerInvariant();
+        if (await context.Usuarios.AnyAsync(usuario => usuario.CorreoElectronico == email))
+        {
+            return Conflict(new { message = "El correo electrónico ya está registrado." });
+        }
+
+        var (hash, salt) = passwordService.HashPassword(request.Password);
+        var usuario = new Usuario
+        {
+            Nombre = request.Nombre.Trim(),
+            CorreoElectronico = email,
+            PasswordHash = hash,
+            PasswordSalt = salt
+        };
+
+        context.Usuarios.Add(usuario);
+        await context.SaveChangesAsync();
+
+        return Ok(new AuthResponse(tokenService.CreateToken(usuario), usuario.Nombre, usuario.CorreoElectronico));
+    }
+
+    [HttpPost("login")]
+    public async Task<ActionResult<AuthResponse>> Login(LoginRequest request)
+    {
+        var email = request.CorreoElectronico.Trim().ToLowerInvariant();
+        var usuario = await context.Usuarios.SingleOrDefaultAsync(
+            candidato => candidato.CorreoElectronico == email);
+
+        if (usuario is null || !passwordService.VerifyPassword(request.Password, usuario.PasswordHash, usuario.PasswordSalt))
+        {
+            return Unauthorized(new { message = "Credenciales inválidas." });
+        }
+
+        return Ok(new AuthResponse(tokenService.CreateToken(usuario), usuario.Nombre, usuario.CorreoElectronico));
+    }
+}
+
+public sealed record RegisterRequest(
+    [property: Required, StringLength(100, MinimumLength = 2)] string Nombre,
+    [property: Required, EmailAddress, StringLength(200)] string CorreoElectronico,
+    [property: Required, StringLength(100, MinimumLength = 8)] string Password);
+
+public sealed record LoginRequest(
+    [property: Required, EmailAddress, StringLength(200)] string CorreoElectronico,
+    [property: Required] string Password);
+
+public sealed record AuthResponse(string Token, string Nombre, string CorreoElectronico);

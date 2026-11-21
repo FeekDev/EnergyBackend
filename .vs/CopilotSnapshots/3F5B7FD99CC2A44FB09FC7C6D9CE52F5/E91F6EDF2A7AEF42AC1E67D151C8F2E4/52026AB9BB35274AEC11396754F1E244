@@ -1,0 +1,40 @@
+﻿using Microsoft.EntityFrameworkCore.Metadata.Internal;
+
+namespace EnergyBackend.Data
+{
+    public class Casa
+    {
+        public int Id { get; set; }
+        public required string CantidadPersonas { get; set; }
+        public bool IsComplete { get; internal set; }
+     
+    }
+
+    public class Direccion
+    {
+        public int Id { get; set; }
+        public required string Calle { get; set; }
+        public required string Ciudad { get; set; }
+        public required string Estado { get; set; }
+        public required string CodigoPostal { get; set; }
+        public required string idCasa { get; set; }
+    }
+
+    public class Persona
+    {
+        public int Id { get; set; }
+        public required string Nombre { get; set; }
+        public required string Apellido { get; set; }
+        public required string CorreoElectronico { get; set; }
+        public required string Telefono { get; set; }
+        public required string idCasa { get; set; }
+    }
+
+    public class AhorroEnergia
+    {
+        public int Id { get; set; }
+        public required string TipoAhorro { get; set; }
+        public required string Descripcion { get; set; }
+        public required string idCasa { get; set; }
+    }
+}

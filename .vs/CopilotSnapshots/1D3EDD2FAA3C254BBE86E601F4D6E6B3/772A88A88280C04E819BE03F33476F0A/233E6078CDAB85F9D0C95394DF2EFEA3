@@ -1,0 +1,42 @@
+﻿using EnergyBackend.Data;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.SqlServer;
+
+public class AppDbContext : DbContext
+{
+    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
+    {
+    }
+    public DbSet<Casa> Casas { get; set; }
+    public DbSet<Direccion> Direcciones { get; set; }
+    public DbSet<Persona> Personas { get; set; }
+    public DbSet<AhorroEnergia> AhorrosEnergia { get; set; }
+    public DbSet<Usuario> Usuarios { get; set; }
+    public DbSet<Factura> Facturas { get; set; }
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<Usuario>()
+            .HasIndex(usuario => usuario.CorreoElectronico)
+            .IsUnique();
+
+        modelBuilder.Entity<Factura>()
+            .HasOne(factura => factura.Usuario)
+            .WithMany()
+            .HasForeignKey(factura => factura.UsuarioId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Factura>()
+            .Property(factura => factura.ValorAcueducto)
+            .HasPrecision(18, 2);
+        modelBuilder.Entity<Factura>()
+            .Property(factura => factura.ValorAlcantarillado)
+            .HasPrecision(18, 2);
+        modelBuilder.Entity<Factura>()
+            .Property(factura => factura.ValorEnergia)
+            .HasPrecision(18, 2);
+        modelBuilder.Entity<Factura>()
+            .Property(factura => factura.ValorGas)
+            .HasPrecision(18, 2);
+    }
+}

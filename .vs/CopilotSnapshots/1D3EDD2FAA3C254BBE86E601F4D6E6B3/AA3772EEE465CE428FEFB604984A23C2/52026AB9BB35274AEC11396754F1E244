@@ -1,0 +1,77 @@
+﻿using System.ComponentModel.DataAnnotations;
+
+namespace EnergyBackend.Data
+{
+    public class Casa
+    {
+        public int Id { get; set; }
+        public required string CantidadPersonas { get; set; }
+        public bool IsComplete { get; internal set; }
+     
+    }
+
+    public class Direccion
+    {
+        public int Id { get; set; }
+        public required string Calle { get; set; }
+        public required string Ciudad { get; set; }
+        public required string Estado { get; set; }
+        public required string CodigoPostal { get; set; }
+        public required string idCasa { get; set; }
+    }
+
+    public class Persona
+    {
+        public int Id { get; set; }
+        public required string Nombre { get; set; }
+        public required string Apellido { get; set; }
+        public required string CorreoElectronico { get; set; }
+        public required string Telefono { get; set; }
+        public required string idCasa { get; set; }
+    }
+
+    public class AhorroEnergia
+    {
+        public int Id { get; set; }
+        public required string TipoAhorro { get; set; }
+        public required string Descripcion { get; set; }
+        public required string idCasa { get; set; }
+    }
+
+    public class Usuario
+    {
+        public int Id { get; set; }
+        public required string Nombre { get; set; }
+        public required string CorreoElectronico { get; set; }
+        public required string PasswordHash { get; set; }
+        public required string PasswordSalt { get; set; }
+        public DateTime CreadoEn { get; set; } = DateTime.UtcNow;
+    }
+
+    public class Factura
+    {
+        public int Id { get; set; }
+        public int UsuarioId { get; set; }
+        public Usuario Usuario { get; set; } = null!;
+
+        [Required, StringLength(100)]
+        public required string NumeroContrato { get; set; }
+
+        public DateTime FechaEmision { get; set; }
+        public DateTime? FechaPago { get; set; }
+
+        [Range(0, double.MaxValue)]
+        public decimal ValorAcueducto { get; set; }
+
+        [Range(0, double.MaxValue)]
+        public decimal ValorAlcantarillado { get; set; }
+
+        [Range(0, double.MaxValue)]
+        public decimal ValorEnergia { get; set; }
+
+        [Range(0, double.MaxValue)]
+        public decimal ValorGas { get; set; }
+
+        public DateTime CreadoEn { get; set; } = DateTime.UtcNow;
+    }
+}

@@ -1,0 +1,83 @@
+using Microsoft.EntityFrameworkCore.Migrations;
+
+#nullable disable
+
+namespace EnergyBackend.Migrations
+{
+    /// <inheritdoc />
+    public partial class RelacionarModelos : Migration
+    {
+        /// <inheritdoc />
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.DropTable(name: "AhorrosEnergia");
+
+            migrationBuilder.AddColumn<int>(
+                name: "UsuarioId",
+                table: "Casas",
+                type: "int",
+                nullable: true);
+
+            migrationBuilder.AddColumn<int>(
+                name: "idCasa",
+                table: "Facturas",
+                type: "int",
+                nullable: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Casas_UsuarioId",
+                table: "Casas",
+                column: "UsuarioId");
+            migrationBuilder.CreateIndex(
+                name: "IX_Facturas_CasaId",
+                table: "Facturas",
+                column: "idCasa");
+
+            migrationBuilder.AddForeignKey(
+                name: "FK_Casas_Usuarios_UsuarioId",
+                table: "Casas",
+                column: "UsuarioId",
+                principalTable: "Usuarios",
+                principalColumn: "Id",
+                onDelete: ReferentialAction.Cascade);
+            migrationBuilder.AddForeignKey(
+                name: "FK_Direcciones_Casas_CasaId",
+                table: "Direcciones",
+                column: "idCasa",
+                principalTable: "Casas",
+                principalColumn: "Id",
+                onDelete: ReferentialAction.Cascade);
+            migrationBuilder.AddForeignKey(
+                name: "FK_Facturas_Casas_CasaId",
+                table: "Facturas",
+                column: "idCasa",
+                principalTable: "Casas",
+                principalColumn: "Id",
+                onDelete: ReferentialAction.Restrict);
+        }
+
+        /// <inheritdoc />
+        protected override void Down(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.DropForeignKey(name: "FK_Casas_Usuarios_UsuarioId", table: "Casas");
+            migrationBuilder.DropForeignKey(name: "FK_Direcciones_Casas_CasaId", table: "Direcciones");
+            migrationBuilder.DropForeignKey(name: "FK_Facturas_Casas_CasaId", table: "Facturas");
+            migrationBuilder.DropIndex(name: "IX_Casas_UsuarioId", table: "Casas");
+            migrationBuilder.DropIndex(name: "IX_Facturas_CasaId", table: "Facturas");
+
+            migrationBuilder.DropColumn(name: "UsuarioId", table: "Casas");
+            migrationBuilder.DropColumn(name: "idCasa", table: "Facturas");
+
+            migrationBuilder.CreateTable(
+                name: "AhorrosEnergia",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "int", nullable: false).Annotation("SqlServer:Identity", "1, 1"),
+                    TipoAhorro = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    Descripcion = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    idCasa = table.Column<string>(type: "nvarchar(max)", nullable: false)
+                },
+                constraints: table => table.PrimaryKey("PK_AhorrosEnergia", x => x.Id));
+        }
+    }
+}

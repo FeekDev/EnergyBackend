@@ -1,0 +1,15 @@
+﻿{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "AllowedHosts": "*"
+  ,"Jwt": {
+    "Key": "VGhpc0lzQURldmVsb3BtZW50S2V5VGhhdE11c3RCZVJlcGxhY2Vk",
+    "Issuer": "EnergyBackend",
+    "Audience": "EnergyBackend.Client",
+    "ExpirationMinutes": 60
+  }
+}

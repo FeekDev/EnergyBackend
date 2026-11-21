@@ -1,0 +1,123 @@
+﻿using System.ComponentModel.DataAnnotations;
+using System.Security.Claims;
+using EnergyBackend.Data;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+
+namespace EnergyBackend.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+[Authorize]
+public sealed class FacturaController(AppDbContext context) : ControllerBase
+{
+    [HttpGet]
+    public async Task<ActionResult<IEnumerable<FacturaResponse>>> GetFacturas()
+    {
+        var usuarioId = GetUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized();
+        }
+
+        var facturas = await context.Facturas
+            .AsNoTracking()
+            .Where(factura => factura.UsuarioId == usuarioId.Value)
+            .OrderByDescending(factura => factura.FechaEmision)
+            .Select(factura => new FacturaResponse(
+                factura.Id,
+                factura.NumeroContrato,
+                factura.FechaEmision,
+                factura.FechaPago,
+                factura.ValorAcueducto,
+                factura.ValorAlcantarillado,
+                factura.ValorEnergia,
+                factura.ValorGas))
+            .ToListAsync();
+
+        return Ok(facturas);
+    }
+
+    [HttpPost]
+    public async Task<ActionResult<FacturaResponse>> RegistrarFactura(RegistrarFacturaRequest request)
+    {
+        var usuarioId = GetUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized();
+        }
+
+        if (request.FechaPago is not null && request.FechaPago.Value < request.FechaEmision)
+        {
+            ModelState.AddModelError(nameof(request.FechaPago),
+                "La fecha de pago no puede ser anterior a la fecha de emisión.");
+            return ValidationProblem(ModelState);
+        }
+
+        var factura = new Factura
+        {
+            UsuarioId = usuarioId.Value,
+            NumeroContrato = request.NumeroContrato.Trim(),
+            FechaEmision = request.FechaEmision,
+            FechaPago = request.FechaPago,
+            ValorAcueducto = request.ValorAcueducto,
+            ValorAlcantarillado = request.ValorAlcantarillado,
+            ValorEnergia = request.ValorEnergia,
+            ValorGas = request.ValorGas
+        };
+
+        context.Facturas.Add(factura);
+        await context.SaveChangesAsync();
+
+        return CreatedAtAction(nameof(GetFacturas), null, ToResponse(factura));
+    }
+
+    private int? GetUsuarioId()
+    {
+        return int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var usuarioId)
+            ? usuarioId
+            : null;
+    }
+
+    private static FacturaResponse ToResponse(Factura factura) => new(
+        factura.Id,
+        factura.NumeroContrato,
+        factura.FechaEmision,
+        factura.FechaPago,
+        factura.ValorAcueducto,
+        factura.ValorAlcantarillado,
+        factura.ValorEnergia,
+        factura.ValorGas);
+}
+
+public sealed class RegistrarFacturaRequest
+{
+    [Required, StringLength(100)]
+    public string NumeroContrato { get; init; } = string.Empty;
+
+    public DateTime FechaEmision { get; init; }
+    public DateTime? FechaPago { get; init; }
+
+    [Range(0, double.MaxValue)]
+    public decimal ValorAcueducto { get; init; }
+
+    [Range(0, double.MaxValue)]
+    public decimal ValorAlcantarillado { get; init; }
+
+    [Range(0, double.MaxValue)]
+    public decimal ValorEnergia { get; init; }
+
+    [Range(0, double.MaxValue)]
+    public decimal ValorGas { get; init; }
+}
+
+public sealed record FacturaResponse(
+    int Id,
+    string NumeroContrato,
+    DateTime FechaEmision,
+    DateTime? FechaPago,
+    decimal ValorAcueducto,
+    decimal ValorAlcantarillado,
+    decimal ValorEnergia,
+    decimal ValorGas);
