@@ -324,3 +324,4 @@ C:\Users\feliperios\source\repos\EnergyBackend\EnergyBackend\bin\Review\runtimes
 C:\Users\feliperios\source\repos\EnergyBackend\EnergyBackend\bin\Review\runtimes\win-arm64\native\msalruntime_arm64.dll
 C:\Users\feliperios\source\repos\EnergyBackend\EnergyBackend\bin\Review\runtimes\win-x64\native\msalruntime.dll
 C:\Users\feliperios\source\repos\EnergyBackend\EnergyBackend\bin\Review\runtimes\win-x86\native\msalruntime_x86.dll
+C:\Users\feliperios\source\repos\EnergyBackend\EnergyBackend\obj\Debug\net10.0\EnergyBackend.sourcelink.json

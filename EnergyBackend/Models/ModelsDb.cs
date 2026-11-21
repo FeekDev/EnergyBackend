@@ -18,6 +18,11 @@ public class AppDbContext : DbContext
             .HasIndex(usuario => usuario.CorreoElectronico)
             .IsUnique();
 
+        modelBuilder.Entity<Casa>()
+            .HasIndex(casa => new { casa.UsuarioId, casa.NumeroContrato })
+            .IsUnique()
+            .HasFilter("[NumeroContrato] IS NOT NULL");
+
         modelBuilder.Entity<Factura>()
             .HasOne(factura => factura.Usuario)
             .WithMany(usuario => usuario.Facturas)
