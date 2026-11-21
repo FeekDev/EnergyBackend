@@ -5,6 +5,7 @@ using System.Security.Claims;
 using System.Text;
 using EnergyBackend.Data;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -13,7 +14,9 @@ namespace EnergyBackend.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
-public sealed class FacturaController(AppDbContext context) : ControllerBase
+public sealed class FacturaController(
+    AppDbContext context,
+    IWebHostEnvironment environment) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<IEnumerable<FacturaResponse>>> GetFacturas(CancellationToken cancellationToken)
@@ -133,6 +136,96 @@ public sealed class FacturaController(AppDbContext context) : ControllerBase
         await context.SaveChangesAsync(cancellationToken);
 
         return CreatedAtAction(nameof(GetFacturas), null, ToResponse(factura));
+    }
+
+    [HttpPost("datos-demo")]
+    public async Task<ActionResult<CargaDemoResponse>> CargarDatosDemo(CancellationToken cancellationToken)
+    {
+        if (!environment.IsDevelopment())
+        {
+            return NotFound();
+        }
+
+        var usuarioId = GetUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized();
+        }
+
+        const string numeroContrato = "2077739";
+        var consumosMensuales = new (decimal Energia, decimal Agua, decimal Gas)[]
+        {
+            (245, 14.2m, 11.4m), (238, 13.8m, 10.9m), (251, 14.5m, 11.1m),
+            (232, 13.9m, 10.6m), (225, 13.4m, 10.2m), (229, 13.7m, 10.4m),
+            (221, 13.1m, 9.9m), (218, 12.9m, 9.8m), (220, 13.2m, 10m),
+            (215, 12.7m, 9.5m), (211, 12.5m, 9.2m), (214, 12.8m, 9.4m),
+            (207, 12.3m, 9m), (202, 12.1m, 8.8m), (205, 12.4m, 8.9m),
+            (198, 11.9m, 8.6m), (195, 11.7m, 8.4m), (197, 11.8m, 8.5m),
+            (190, 11.4m, 8.2m), (187, 11.2m, 8m), (188, 11.3m, 8.1m)
+        };
+
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
+        var casa = await context.Casas.SingleOrDefaultAsync(
+            item => item.UsuarioId == usuarioId.Value && item.NumeroContrato == numeroContrato,
+            cancellationToken);
+        if (casa is null)
+        {
+            casa = new Casa
+            {
+                NumeroContrato = numeroContrato,
+                CantidadPersonas = "3",
+                UsuarioId = usuarioId.Value
+            };
+            context.Casas.Add(casa);
+            await context.SaveChangesAsync(cancellationToken);
+        }
+
+        var facturasExistentes = await context.Facturas
+            .Where(factura =>
+                factura.UsuarioId == usuarioId.Value &&
+                factura.NumeroContrato == numeroContrato &&
+                factura.FechaEmision >= new DateTime(2025, 1, 1) &&
+                factura.FechaEmision < new DateTime(2026, 10, 1))
+            .Select(factura => factura.FechaEmision)
+            .ToListAsync(cancellationToken);
+        var mesesExistentes = facturasExistentes
+            .Select(fecha => (fecha.Year, fecha.Month))
+            .ToHashSet();
+        var facturasNuevas = new List<Factura>();
+
+        for (var index = 0; index < consumosMensuales.Length; index++)
+        {
+            var fechaEmision = new DateTime(2025, 1, 15).AddMonths(index);
+            if (mesesExistentes.Contains((fechaEmision.Year, fechaEmision.Month)))
+            {
+                continue;
+            }
+
+            var consumo = consumosMensuales[index];
+            facturasNuevas.Add(new Factura
+            {
+                UsuarioId = usuarioId.Value,
+                CasaId = casa.Id,
+                NumeroContrato = numeroContrato,
+                FechaEmision = fechaEmision,
+                ConsumoEnergiaKwh = consumo.Energia,
+                ConsumoAcueductoM3 = consumo.Agua,
+                ConsumoAlcantarilladoM3 = consumo.Agua,
+                ConsumoGasM3 = consumo.Gas
+            });
+        }
+
+        context.Facturas.AddRange(facturasNuevas);
+        await context.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return Ok(new CargaDemoResponse(
+            numeroContrato,
+            facturasNuevas.Count,
+            mesesExistentes.Count,
+            consumosMensuales.Length,
+            "Datos ficticios de demostración; no representan lecturas reales."));
     }
 
     [HttpGet("recomendaciones-trimestrales")]
@@ -519,3 +612,11 @@ public sealed record RecomendacionTrimestralResponse(
     ConsumoRecomendacionResponse Acueducto,
     ConsumoRecomendacionResponse Alcantarillado,
     ConsumoRecomendacionResponse Gas);
+
+/// <summary>Resultado de la carga idempotente de facturas ficticias de demostración.</summary>
+public sealed record CargaDemoResponse(
+    string NumeroContrato,
+    int FacturasAgregadas,
+    int MesesOmitidos,
+    int TotalMesesDemostracion,
+    string Aviso);
