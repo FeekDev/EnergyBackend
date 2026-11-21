@@ -1,1 +1,10 @@
-Debug/
+
+# .NET build and debugging output
+**/bin/
+**/obj/
+.vs/
+*.pdb
+*.mdb
+*.cache
+*.user
+*.suo

@@ -169,7 +169,8 @@ public sealed class FacturaController(AppDbContext context) : ControllerBase
                     grupo.Sum(factura => factura.ConsumoEnergiaKwh),
                     grupo.Sum(factura => factura.ConsumoAcueductoM3),
                     grupo.Sum(factura => factura.ConsumoAlcantarilladoM3),
-                    grupo.Sum(factura => factura.ConsumoGasM3)))
+                    grupo.Sum(factura => factura.ConsumoGasM3),
+                    grupo.Count()))
                 .OrderByDescending(periodo => periodo.Anio)
                 .ThenByDescending(periodo => periodo.Trimestre)
                 .ToList();
@@ -181,22 +182,32 @@ public sealed class FacturaController(AppDbContext context) : ControllerBase
             var anterior = periodos.FirstOrDefault(periodo =>
                 periodo.Anio == trimestreAnterior.Item1 &&
                 periodo.Trimestre == trimestreAnterior.Item2);
+            var hoy = DateTime.UtcNow;
+            var esTrimestreEnCurso = actual.Anio == hoy.Year &&
+                actual.Trimestre == (hoy.Month - 1) / 3 + 1;
+            var periodoParaComparar = esTrimestreEnCurso ? null : anterior;
 
             resultados.Add(new RecomendacionTrimestralResponse(
                 facturasCasa.Key,
                 actual.Anio,
                 actual.Trimestre,
+                actual.CantidadFacturas,
+                esTrimestreEnCurso,
                 CrearConsumoRecomendado(
-                    "Energía", "kWh", actual.ConsumoEnergiaKwh, anterior?.ConsumoEnergiaKwh,
+                    "Energía", "kWh", actual.ConsumoEnergiaKwh, periodoParaComparar?.ConsumoEnergiaKwh,
+                    esTrimestreEnCurso,
                     "Revisa iluminación, equipos en espera y el uso de equipos de alto consumo."),
                 CrearConsumoRecomendado(
-                    "Acueducto", "m³", actual.ConsumoAcueductoM3, anterior?.ConsumoAcueductoM3,
+                    "Acueducto", "m³", actual.ConsumoAcueductoM3, periodoParaComparar?.ConsumoAcueductoM3,
+                    esTrimestreEnCurso,
                     "Revisa posibles fugas y prioriza duchas más cortas y dispositivos ahorradores."),
                 CrearConsumoRecomendado(
-                    "Alcantarillado", "m³", actual.ConsumoAlcantarilladoM3, anterior?.ConsumoAlcantarilladoM3,
+                    "Alcantarillado", "m³", actual.ConsumoAlcantarilladoM3, periodoParaComparar?.ConsumoAlcantarilladoM3,
+                    esTrimestreEnCurso,
                     "Reduce el agua desechada reutilizando agua cuando sea seguro y evita descargas innecesarias."),
                 CrearConsumoRecomendado(
-                    "Gas", "m³", actual.ConsumoGasM3, anterior?.ConsumoGasM3,
+                    "Gas", "m³", actual.ConsumoGasM3, periodoParaComparar?.ConsumoGasM3,
+                    esTrimestreEnCurso,
                     "Revisa la eficiencia de los equipos a gas, la ventilación y su mantenimiento periódico.")));
         }
 
@@ -226,6 +237,7 @@ public sealed class FacturaController(AppDbContext context) : ControllerBase
         string unidad,
         decimal actual,
         decimal? anterior,
+        bool esTrimestreEnCurso,
         string consejoAhorro)
     {
         if (anterior is null)
@@ -236,7 +248,9 @@ public sealed class FacturaController(AppDbContext context) : ControllerBase
                 actual,
                 null,
                 null,
-                $"Este es el primer trimestre disponible. Registra cada factura para establecer una referencia. {consejoAhorro}");
+                esTrimestreEnCurso
+                    ? $"Recomendación preliminar basada en las facturas registradas hasta ahora. Se actualizará al registrar las siguientes facturas del trimestre. {consejoAhorro}"
+                    : $"No hay datos del trimestre anterior para comparar. Registra las facturas para establecer una referencia. {consejoAhorro}");
         }
 
         decimal? variacion = anterior.Value == 0
@@ -266,7 +280,8 @@ public sealed class FacturaController(AppDbContext context) : ControllerBase
         decimal ConsumoEnergiaKwh,
         decimal ConsumoAcueductoM3,
         decimal ConsumoAlcantarilladoM3,
-        decimal ConsumoGasM3);
+        decimal ConsumoGasM3,
+        int CantidadFacturas);
 }
 
 public sealed class RegistrarFacturaRequest
@@ -321,6 +336,8 @@ public sealed record RecomendacionTrimestralResponse(
     int CasaId,
     int Anio,
     int Trimestre,
+    int CantidadFacturas,
+    bool EsPreliminar,
     ConsumoRecomendacionResponse Energia,
     ConsumoRecomendacionResponse Acueducto,
     ConsumoRecomendacionResponse Alcantarillado,
