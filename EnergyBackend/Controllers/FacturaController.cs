@@ -1,7 +1,11 @@
 using System.ComponentModel.DataAnnotations;
+using System.Globalization;
+using System.Net;
 using System.Security.Claims;
+using System.Text;
 using EnergyBackend.Data;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,7 +14,9 @@ namespace EnergyBackend.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
-public sealed class FacturaController(AppDbContext context) : ControllerBase
+public sealed class FacturaController(
+    AppDbContext context,
+    IWebHostEnvironment environment) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<IEnumerable<FacturaResponse>>> GetFacturas(CancellationToken cancellationToken)
@@ -132,6 +138,96 @@ public sealed class FacturaController(AppDbContext context) : ControllerBase
         return CreatedAtAction(nameof(GetFacturas), null, ToResponse(factura));
     }
 
+    [HttpPost("datos-demo")]
+    public async Task<ActionResult<CargaDemoResponse>> CargarDatosDemo(CancellationToken cancellationToken)
+    {
+        if (!environment.IsDevelopment())
+        {
+            return NotFound();
+        }
+
+        var usuarioId = GetUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized();
+        }
+
+        const string numeroContrato = "2077739";
+        var consumosMensuales = new (decimal Energia, decimal Agua, decimal Gas)[]
+        {
+            (245, 14.2m, 11.4m), (238, 13.8m, 10.9m), (251, 14.5m, 11.1m),
+            (232, 13.9m, 10.6m), (225, 13.4m, 10.2m), (229, 13.7m, 10.4m),
+            (221, 13.1m, 9.9m), (218, 12.9m, 9.8m), (220, 13.2m, 10m),
+            (215, 12.7m, 9.5m), (211, 12.5m, 9.2m), (214, 12.8m, 9.4m),
+            (207, 12.3m, 9m), (202, 12.1m, 8.8m), (205, 12.4m, 8.9m),
+            (198, 11.9m, 8.6m), (195, 11.7m, 8.4m), (197, 11.8m, 8.5m),
+            (190, 11.4m, 8.2m), (187, 11.2m, 8m), (188, 11.3m, 8.1m)
+        };
+
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
+        var casa = await context.Casas.SingleOrDefaultAsync(
+            item => item.UsuarioId == usuarioId.Value && item.NumeroContrato == numeroContrato,
+            cancellationToken);
+        if (casa is null)
+        {
+            casa = new Casa
+            {
+                NumeroContrato = numeroContrato,
+                CantidadPersonas = "3",
+                UsuarioId = usuarioId.Value
+            };
+            context.Casas.Add(casa);
+            await context.SaveChangesAsync(cancellationToken);
+        }
+
+        var facturasExistentes = await context.Facturas
+            .Where(factura =>
+                factura.UsuarioId == usuarioId.Value &&
+                factura.NumeroContrato == numeroContrato &&
+                factura.FechaEmision >= new DateTime(2025, 1, 1) &&
+                factura.FechaEmision < new DateTime(2026, 10, 1))
+            .Select(factura => factura.FechaEmision)
+            .ToListAsync(cancellationToken);
+        var mesesExistentes = facturasExistentes
+            .Select(fecha => (fecha.Year, fecha.Month))
+            .ToHashSet();
+        var facturasNuevas = new List<Factura>();
+
+        for (var index = 0; index < consumosMensuales.Length; index++)
+        {
+            var fechaEmision = new DateTime(2025, 1, 15).AddMonths(index);
+            if (mesesExistentes.Contains((fechaEmision.Year, fechaEmision.Month)))
+            {
+                continue;
+            }
+
+            var consumo = consumosMensuales[index];
+            facturasNuevas.Add(new Factura
+            {
+                UsuarioId = usuarioId.Value,
+                CasaId = casa.Id,
+                NumeroContrato = numeroContrato,
+                FechaEmision = fechaEmision,
+                ConsumoEnergiaKwh = consumo.Energia,
+                ConsumoAcueductoM3 = consumo.Agua,
+                ConsumoAlcantarilladoM3 = consumo.Agua,
+                ConsumoGasM3 = consumo.Gas
+            });
+        }
+
+        context.Facturas.AddRange(facturasNuevas);
+        await context.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return Ok(new CargaDemoResponse(
+            numeroContrato,
+            facturasNuevas.Count,
+            mesesExistentes.Count,
+            consumosMensuales.Length,
+            "Datos ficticios de demostración; no representan lecturas reales."));
+    }
+
     [HttpGet("recomendaciones-trimestrales")]
     public async Task<ActionResult<IReadOnlyList<RecomendacionTrimestralResponse>>> GetRecomendacionesTrimestrales(
         CancellationToken cancellationToken)
@@ -214,6 +310,166 @@ public sealed class FacturaController(AppDbContext context) : ControllerBase
         return Ok(resultados);
     }
 
+    [HttpGet("linea-tiempo/{numeroContrato}.svg")]
+    [Produces("image/svg+xml")]
+    public async Task<IActionResult> GetLineaTiempoConsumos(
+        string numeroContrato,
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = GetUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized();
+        }
+
+        var registros = await context.Facturas
+            .AsNoTracking()
+            .Where(factura =>
+                factura.UsuarioId == usuarioId.Value &&
+                factura.NumeroContrato == numeroContrato)
+            .Select(factura => new
+            {
+                factura.FechaEmision,
+                factura.ConsumoEnergiaKwh,
+                factura.ConsumoAcueductoM3,
+                factura.ConsumoAlcantarilladoM3,
+                factura.ConsumoGasM3
+            })
+            .ToListAsync(cancellationToken);
+
+        var periodos = registros
+            .GroupBy(factura => (
+                Anio: factura.FechaEmision.Year,
+                Trimestre: (factura.FechaEmision.Month - 1) / 3 + 1))
+            .Select(grupo => new ConsumoGrafico(
+                grupo.Key.Anio,
+                grupo.Key.Trimestre,
+                grupo.Sum(factura => factura.ConsumoEnergiaKwh),
+                grupo.Sum(factura => factura.ConsumoAcueductoM3),
+                grupo.Sum(factura => factura.ConsumoAlcantarilladoM3),
+                grupo.Sum(factura => factura.ConsumoGasM3)))
+            .OrderBy(periodo => periodo.Anio)
+            .ThenBy(periodo => periodo.Trimestre)
+            .TakeLast(8)
+            .ToList();
+
+        if (periodos.Count == 0)
+        {
+            return NotFound(new { message = "No hay facturas para este contrato." });
+        }
+
+        return Content(
+            CrearGraficoSvg(numeroContrato, periodos),
+            "image/svg+xml; charset=utf-8");
+    }
+
+    private static string CrearGraficoSvg(string numeroContrato, IReadOnlyList<ConsumoGrafico> periodos)
+    {
+        const int ancho = 900;
+        const int altoPanel = 145;
+        const int margenIzquierdo = 110;
+        const int margenDerecho = 35;
+        const int alto = 90 + altoPanel * 4;
+        var anchoGrafico = ancho - margenIzquierdo - margenDerecho;
+        var etiquetas = periodos
+            .Select(periodo => $"T{periodo.Trimestre} {periodo.Anio}")
+            .ToArray();
+        var series = new[]
+        {
+            new SerieGrafico("Energía", "kWh", "#d97706", periodos.Select(item => item.ConsumoEnergiaKwh).ToArray()),
+            new SerieGrafico("Acueducto", "m³", "#0284c7", periodos.Select(item => item.ConsumoAcueductoM3).ToArray()),
+            new SerieGrafico("Alcantarillado", "m³", "#7c3aed", periodos.Select(item => item.ConsumoAlcantarilladoM3).ToArray()),
+            new SerieGrafico("Gas", "m³", "#059669", periodos.Select(item => item.ConsumoGasM3).ToArray())
+        };
+        var sb = new StringBuilder();
+        var contratoSeguro = WebUtility.HtmlEncode(numeroContrato);
+
+        sb.Append(CultureInfo.InvariantCulture, $"""
+            <svg xmlns="http://www.w3.org/2000/svg" width="{ancho}" height="{alto}" viewBox="0 0 {ancho} {alto}" role="img" aria-labelledby="titulo descripcion">
+            """);
+        sb.Append("""
+            <style>
+              text { font-family: Arial, sans-serif; fill: #1f2937; }
+              .titulo { font-size: 22px; font-weight: 700; }
+              .subtitulo { font-size: 13px; fill: #4b5563; }
+              .servicio { font-size: 15px; font-weight: 700; }
+              .eje { font-size: 11px; fill: #4b5563; }
+              .rejilla { stroke: #e5e7eb; stroke-width: 1; }
+            </style>
+            """);
+        sb.Append(CultureInfo.InvariantCulture, $"""
+              <title id="titulo">Consumo trimestral del contrato {contratoSeguro}</title>
+              <desc id="descripcion">Gráfico de línea con hasta ocho trimestres. Cada servicio tiene su propia escala para respetar sus unidades.</desc>
+              <rect width="100%" height="100%" fill="#ffffff"/>
+              <text class="titulo" x="{margenIzquierdo}" y="30">Consumo del contrato {contratoSeguro}</text>
+              <text class="subtitulo" x="{margenIzquierdo}" y="52">Totales por trimestre · máximo ocho trimestres · escala independiente por servicio</text>
+            """);
+
+        for (var serieIndex = 0; serieIndex < series.Length; serieIndex++)
+        {
+            var serie = series[serieIndex];
+            var panelTop = 72 + serieIndex * altoPanel;
+            var graficoTop = panelTop + 18;
+            var graficoAlto = 85;
+            var graficoAbajo = graficoTop + graficoAlto;
+            var minimo = serie.Valores.Min();
+            var maximo = serie.Valores.Max();
+            var rango = maximo - minimo;
+            var relleno = rango == 0 ? Math.Max(Math.Abs(maximo) * 0.1m, 1m) : rango * 0.1m;
+            var limiteInferior = Math.Max(0, minimo - relleno);
+            var limiteSuperior = maximo + relleno;
+            var rangoVisible = limiteSuperior - limiteInferior;
+
+            sb.Append(CultureInfo.InvariantCulture, $"""
+                  <text class="servicio" x="16" y="{panelTop + 22}" fill="{serie.Color}">{serie.Nombre} ({serie.Unidad})</text>
+                """);
+
+            for (var tick = 0; tick <= 2; tick++)
+            {
+                var proporcion = tick / 2m;
+                var y = graficoAbajo - (double)(proporcion * graficoAlto);
+                var etiqueta = (limiteInferior + proporcion * rangoVisible)
+                    .ToString("0.##", CultureInfo.InvariantCulture);
+
+                sb.Append(CultureInfo.InvariantCulture, $"""
+                      <line class="rejilla" x1="{margenIzquierdo}" y1="{y:0.##}" x2="{ancho - margenDerecho}" y2="{y:0.##}"/>
+                      <text class="eje" text-anchor="end" x="{margenIzquierdo - 8}" y="{y + 4:0.##}">{etiqueta}</text>
+                    """);
+            }
+
+            var puntos = serie.Valores
+                .Select((valor, index) =>
+                {
+                    var x = periodos.Count == 1
+                        ? margenIzquierdo + anchoGrafico / 2d
+                        : margenIzquierdo + index * anchoGrafico / (double)(periodos.Count - 1);
+                    var y = graficoAbajo - (double)((valor - limiteInferior) / rangoVisible * graficoAlto);
+                    return (X: x, Y: y, Valor: valor, Etiqueta: etiquetas[index]);
+                })
+                .ToArray();
+            var puntosSvg = string.Join(" ", puntos.Select(punto => $"{punto.X:0.##},{punto.Y:0.##}"));
+
+            sb.Append(CultureInfo.InvariantCulture, $"""
+                  <polyline fill="none" stroke="{serie.Color}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" points="{puntosSvg}"/>
+                """);
+
+            foreach (var punto in puntos)
+            {
+                var etiquetaValor = punto.Valor.ToString("0.##", CultureInfo.InvariantCulture);
+                var etiquetaTrimestre = WebUtility.HtmlEncode(punto.Etiqueta);
+                sb.Append(CultureInfo.InvariantCulture, $"""
+                      <circle cx="{punto.X:0.##}" cy="{punto.Y:0.##}" r="4" fill="{serie.Color}">
+                        <title>{etiquetaTrimestre}: {etiquetaValor} {serie.Unidad}</title>
+                      </circle>
+                      <text class="eje" text-anchor="middle" x="{punto.X:0.##}" y="{graficoAbajo + 18}">{etiquetaTrimestre}</text>
+                    """);
+            }
+        }
+
+        sb.Append("</svg>");
+        return sb.ToString();
+    }
+
     private int? GetUsuarioId()
     {
         return int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var usuarioId)
@@ -282,6 +538,20 @@ public sealed class FacturaController(AppDbContext context) : ControllerBase
         decimal ConsumoAlcantarilladoM3,
         decimal ConsumoGasM3,
         int CantidadFacturas);
+
+    private sealed record ConsumoGrafico(
+        int Anio,
+        int Trimestre,
+        decimal ConsumoEnergiaKwh,
+        decimal ConsumoAcueductoM3,
+        decimal ConsumoAlcantarilladoM3,
+        decimal ConsumoGasM3);
+
+    private sealed record SerieGrafico(
+        string Nombre,
+        string Unidad,
+        string Color,
+        decimal[] Valores);
 }
 
 public sealed class RegistrarFacturaRequest
@@ -342,3 +612,11 @@ public sealed record RecomendacionTrimestralResponse(
     ConsumoRecomendacionResponse Acueducto,
     ConsumoRecomendacionResponse Alcantarillado,
     ConsumoRecomendacionResponse Gas);
+
+/// <summary>Resultado de la carga idempotente de facturas ficticias de demostración.</summary>
+public sealed record CargaDemoResponse(
+    string NumeroContrato,
+    int FacturasAgregadas,
+    int MesesOmitidos,
+    int TotalMesesDemostracion,
+    string Aviso);
