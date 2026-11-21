@@ -43,8 +43,19 @@ public class CasaController : ControllerBase
         var casa = new Casa
         {
             CantidadPersonas = request.CantidadPersonas,
+            NumeroContrato = string.IsNullOrWhiteSpace(request.NumeroContrato)
+                ? null
+                : request.NumeroContrato.Trim(),
             UsuarioId = usuarioId.Value
         };
+
+        if (casa.NumeroContrato is not null &&
+            await _context.Casas.AnyAsync(existing =>
+                existing.UsuarioId == usuarioId.Value &&
+                existing.NumeroContrato == casa.NumeroContrato))
+        {
+            return Conflict(new { message = "El número de contrato ya está asociado a otra casa." });
+        }
 
         _context.Casas.Add(casa);
         await _context.SaveChangesAsync();
@@ -63,5 +74,7 @@ public sealed class CasaRequest
 {
     [System.ComponentModel.DataAnnotations.Required]
     public string CantidadPersonas { get; init; } = string.Empty;
-}
 
+    [System.ComponentModel.DataAnnotations.StringLength(100)]
+    public string? NumeroContrato { get; init; }
+}

@@ -51,12 +51,60 @@ public sealed class FacturaController(AppDbContext context) : ControllerBase
             return Unauthorized();
         }
 
-        if (!await context.Casas.AnyAsync(casa =>
-                casa.Id == request.CasaId && casa.UsuarioId == usuarioId.Value,
-                cancellationToken))
+        var numeroContrato = request.NumeroContrato.Trim();
+        Casa? casa;
+        if (request.CasaId is not null)
         {
-            return BadRequest(new { message = "La casa no existe o no pertenece al usuario autenticado." });
+            casa = await context.Casas.SingleOrDefaultAsync(
+                item => item.Id == request.CasaId && item.UsuarioId == usuarioId.Value,
+                cancellationToken);
+            if (casa is null)
+            {
+                return BadRequest(new { message = "La casa no existe o no pertenece al usuario autenticado." });
+            }
+
+            if (casa.NumeroContrato is not null && casa.NumeroContrato != numeroContrato)
+            {
+                return BadRequest(new { message = "La casa ya está asociada a otro número de contrato." });
+            }
         }
+        else
+        {
+            casa = await context.Casas.SingleOrDefaultAsync(
+                item => item.UsuarioId == usuarioId.Value && item.NumeroContrato == numeroContrato,
+                cancellationToken);
+
+            if (casa is null)
+            {
+                if (string.IsNullOrWhiteSpace(request.CantidadPersonas))
+                {
+                    ModelState.AddModelError(
+                        nameof(request.CantidadPersonas),
+                        "Indica la cantidad de personas para crear la casa asociada al contrato.");
+                    return ValidationProblem(ModelState);
+                }
+
+                casa = new Casa
+                {
+                    NumeroContrato = numeroContrato,
+                    CantidadPersonas = request.CantidadPersonas.Trim(),
+                    UsuarioId = usuarioId.Value
+                };
+                context.Casas.Add(casa);
+            }
+        }
+
+        var contratoEnOtraCasa = await context.Casas.AnyAsync(
+            item => item.UsuarioId == usuarioId.Value
+                && item.NumeroContrato == numeroContrato
+                && item.Id != casa.Id,
+            cancellationToken);
+        if (contratoEnOtraCasa)
+        {
+            return Conflict(new { message = "El número de contrato ya está asociado a otra casa." });
+        }
+
+        casa.NumeroContrato = numeroContrato;
 
         if (request.FechaPago is not null && request.FechaPago.Value < request.FechaEmision)
         {
@@ -68,8 +116,8 @@ public sealed class FacturaController(AppDbContext context) : ControllerBase
         var factura = new Factura
         {
             UsuarioId = usuarioId.Value,
-            CasaId = request.CasaId,
-            NumeroContrato = request.NumeroContrato.Trim(),
+            Casa = casa,
+            NumeroContrato = numeroContrato,
             FechaEmision = request.FechaEmision,
             FechaPago = request.FechaPago,
             ConsumoAcueductoM3 = request.ConsumoAcueductoM3,
@@ -224,10 +272,13 @@ public sealed class FacturaController(AppDbContext context) : ControllerBase
 public sealed class RegistrarFacturaRequest
 {
     [Range(1, int.MaxValue)]
-    public int CasaId { get; init; }
+    public int? CasaId { get; init; }
 
     [Required, StringLength(100)]
     public string NumeroContrato { get; init; } = string.Empty;
+
+    [StringLength(100)]
+    public string? CantidadPersonas { get; init; }
 
     public DateTime FechaEmision { get; init; }
     public DateTime? FechaPago { get; init; }

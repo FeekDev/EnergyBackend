@@ -36,12 +36,18 @@ namespace EnergyBackend.Migrations
                     b.Property<bool>("IsComplete")
                         .HasColumnType("bit");
 
+                    b.Property<string>("NumeroContrato")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.Property<int?>("UsuarioId")
                         .HasColumnType("int");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("UsuarioId");
+                    b.HasIndex("UsuarioId", "NumeroContrato")
+                        .IsUnique()
+                        .HasFilter("[NumeroContrato] IS NOT NULL");
 
                     b.ToTable("Casas");
                 });
